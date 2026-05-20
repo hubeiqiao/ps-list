@@ -1,4 +1,6 @@
 import process from 'node:process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {once} from 'node:events';
 import childProcess from 'node:child_process';
@@ -68,6 +70,7 @@ test('custom binary', async t => {
 
 	if (!isWindows) {
 		t.is(record.cmd, `${nodeBinaryName} ${arguments_.join(' ')}`);
+		t.is(record.args, arguments_.join(' '));
 		t.is(record.uid, process.getuid());
 		// Path can be empty (relative command) or absolute (CI environments)
 		t.true(typeof record.path === 'string', 'Path should be a string');
@@ -112,13 +115,59 @@ test('path resolution', async t => {
 	}
 
 	// Find any node process - should have path resolved
-	const nodeProcess = list.find(x => x.name === 'node' || x.name === nodeBinaryName);
+	const nodeProcess = list.find(x => (x.name === 'node' || x.name === nodeBinaryName) && x.path.includes('node'));
 	if (nodeProcess) {
 		t.true(nodeProcess.path.includes('node'), 'Node process path should contain node');
 		// Verify path is not just the truncated comm
 		if (nodeProcess.path.startsWith('/')) {
 			t.true(nodeProcess.path.length > nodeProcess.name.length, 'Path should be longer than truncated name');
 		}
+	}
+});
+
+test('arguments from absolute executable path', async t => {
+	if (isWindows) {
+		t.pass('Argument parsing test skipped on Windows');
+		return;
+	}
+
+	const arguments_ = ['./fixtures/sleep-forever.js', 'absolute-path-arg'];
+	const sleepForever = childProcess.spawn(process.execPath, arguments_);
+
+	try {
+		const list = await psList();
+		const record = list.find(process_ => process_.pid === sleepForever.pid);
+		t.truthy(record, 'Should find spawned process');
+		t.is(record.path, process.execPath);
+		t.is(record.args, arguments_.join(' '));
+	} finally {
+		sleepForever.kill(9);
+		await once(sleepForever, 'exit');
+	}
+});
+
+test('arguments from symlinked executable path', async t => {
+	if (isWindows) {
+		t.pass('Argument parsing test skipped on Windows');
+		return;
+	}
+
+	const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-list-'));
+	const linkedNodePath = path.join(temporaryDirectory, 'node');
+	fs.symlinkSync(process.execPath, linkedNodePath);
+
+	const arguments_ = ['./fixtures/sleep-forever.js', 'symlinked-path-arg'];
+	const sleepForever = childProcess.spawn(linkedNodePath, arguments_);
+
+	try {
+		const list = await psList();
+		const record = list.find(process_ => process_.pid === sleepForever.pid);
+		t.truthy(record, 'Should find spawned process');
+		t.is(record.args, arguments_.join(' '));
+	} finally {
+		sleepForever.kill(9);
+		await once(sleepForever, 'exit');
+		fs.rmSync(temporaryDirectory, {recursive: true, force: true});
 	}
 });
 

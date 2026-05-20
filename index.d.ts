@@ -22,6 +22,13 @@ export type ProcessDescriptor = {
 	readonly cmd?: string;
 
 	/**
+	Command-line arguments without the executable path/name.
+
+	Not supported on Windows.
+	*/
+	readonly args?: string;
+
+	/**
 	CPU usage as a percentage (0-100).
 
 	Not supported on Windows.

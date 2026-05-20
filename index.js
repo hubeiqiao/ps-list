@@ -116,6 +116,66 @@ const parseIntegerOrUndefined = fieldValue => {
 	return Number.isNaN(parsedValue) ? undefined : parsedValue;
 };
 
+const getCommandExecutableSegment = command => {
+	if (command.startsWith('"')) {
+		const quotedExecutablePathRegexMatch = command.match(/^"([^"]+)"(?:\s+|$)/);
+		if (!quotedExecutablePathRegexMatch) {
+			return;
+		}
+
+		return {
+			executable: quotedExecutablePathRegexMatch[1],
+			args: command.slice(quotedExecutablePathRegexMatch[0].length).trimStart(),
+		};
+	}
+
+	const executablePathRegexMatch = command.match(/^(\S+)(?:\s+|$)/);
+	if (!executablePathRegexMatch) {
+		return;
+	}
+
+	return {
+		executable: executablePathRegexMatch[1],
+		args: command.slice(executablePathRegexMatch[0].length).trimStart(),
+	};
+};
+
+const getProcessArguments = ({command, executablePath, commandName}) => {
+	if (!command) {
+		return '';
+	}
+
+	const prefixes = [
+		executablePath && `"${executablePath}"`,
+		executablePath,
+		commandName && `"${commandName}"`,
+		commandName,
+	].filter(Boolean);
+
+	for (const prefix of prefixes.sort((a, b) => b.length - a.length)) {
+		if (command === prefix) {
+			return '';
+		}
+
+		if (command.startsWith(`${prefix} `)) {
+			return command.slice(prefix.length).trimStart();
+		}
+	}
+
+	const commandExecutableSegment = getCommandExecutableSegment(command);
+	const commandExecutableName = commandExecutableSegment && path.basename(commandExecutableSegment.executable);
+	const possibleExecutableNames = [
+		commandName,
+		executablePath && path.basename(executablePath),
+	].filter(Boolean);
+
+	if (commandExecutableName && possibleExecutableNames.includes(commandExecutableName)) {
+		return commandExecutableSegment.args;
+	}
+
+	return '';
+};
+
 // Unified field parser
 const parseProcessFields = ({processId, parentProcessId, userId, cpuUsage, memoryUsage, commandName, startTimeString, command}) => {
 	// Parse numeric fields with proper defaults
@@ -141,6 +201,11 @@ const parseProcessFields = ({processId, parentProcessId, userId, cpuUsage, memor
 		path: resolvedExecutablePath,
 		startTime: makeStartTime(startTimeString),
 		cmd: command || '',
+		args: getProcessArguments({
+			command: command || '',
+			executablePath: resolvedExecutablePath,
+			commandName,
+		}),
 	};
 };
 
